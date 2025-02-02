@@ -19,7 +19,7 @@ export const uploadOnCloudinary = async (file) => {
       "Successfully uploaded to cloudinary and the url is: ",
       response.url,
     );
-    return response;
+    return response.url;
   } catch (err) {
     fs.unlink(file);
   }

@@ -6,3 +6,5 @@ class apiResponse {
     this.data = status < 400;
   }
 }
+
+export { apiResponse };

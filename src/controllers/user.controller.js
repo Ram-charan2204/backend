@@ -2,6 +2,16 @@ import asyncHandler from "../utils/asyncHandler.js";
 import apiError from "../utils/apiError.js";
 import User from "../models/user.model.js";
 import upLoadOnCloudinary from "../utils/cloudinary.js";
+import { apiResponse } from "../utils/apiResponse.js";
+
+const generateAccessAndRefreshToken = async (userId) => {
+  const user = User.findById(userId);
+  const accessToken = user.generateAccessToken();
+  const refreshToken = user.generateRefreshToken();
+  user.refreshToken = refreshToken;
+  await user.save({ validateBeforeSave: false });
+  return { accessToken, refreshToken };
+};
 
 export const registerUser = asyncHandler(async (req, res) => {
   const { fullName, email, password, username } = req.body;
@@ -18,28 +28,28 @@ export const registerUser = asyncHandler(async (req, res) => {
     res.status(400);
     throw new apiError(400, "User already existed");
   }
-  const coverImagePath = req.files.coverImage[0]?.path;
-  const avatarPath = req.files.avatar[0]?.path;
+  const coverImagePath = req.files?.coverImage[0]?.path;
+  const avatarPath = req.files?.avatar[0]?.path;
 
   if (!avatarPath) {
     throw new apiError(402, "Avatar image is required.");
   }
 
-  const coverImage = upLoadOnCloudinary(coverImagePath);
-  const avatar = upLoadOnCloudinary(avatarPath);
+  const coverImage1 = await upLoadOnCloudinary(coverImagePath);
+  const avatarImage = await upLoadOnCloudinary(avatarPath);
 
   const user = await User.create({
     fullName,
     email,
-    password,
     username: username.toLowerCase(),
-    coverImage: coverImage?.url || "",
-    avatar: avatar,
+    avatar: avatarImage,
+    coverImage: coverImage1 || "",
+    password,
   });
 
-  const createdUser = await user
-    .findById(user._id)
-    .select("-password -refreshToken");
+  const createdUser = await User.findById(user._id).select(
+    "-password -refreshToken",
+  );
 
   if (!createdUser) {
     throw new apiError(500, "User not created");
@@ -47,5 +57,38 @@ export const registerUser = asyncHandler(async (req, res) => {
 
   return res
     .status(201)
-    .json(apiResponse(200, "User created successfully", createdUser));
+    .json(new apiResponse(200, "User created successfully", createdUser));
+});
+
+export const loginUser = asyncHandler(async (req, res) => {
+  const { username, email, password } = req.body;
+  if (!(username || email) || !password) {
+    throw new apiError(400, "Username or email and password are required");
+  }
+  const user = await User.findOne({
+    $or: [{ username }, { email }],
+  });
+  if (!user) {
+    throw new apiError(404, "User not found");
+  }
+  const isMatch = await user.isPasswordMatch(password);
+  if (!isMatch) {
+    throw new apiError(401, "Invalid credentials");
+  }
+  const { accessToken, refreshToken } = await generateAccessAndRefreshToken(
+    user._id,
+  );
+  res
+    .status(200)
+    .cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: true,
+    })
+    .cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: true,
+    })
+    .json(
+      new apiResponse(200, "Login successful", { accessToken, refreshToken }),
+    );
 });
